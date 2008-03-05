@@ -126,7 +126,7 @@ def stunParserMsg(*params):
         msgLength -= 2
         print "attributeType is %s"%attributeType
         
-        attributeLength = int(binascii.b2a_hex(msg[start:start+2]))
+        attributeLength = int(binascii.b2a_hex(msg[start:start+2]), 16)
         start += 2
         msgLength -= 2
         print "attibuteLength is %d"%attributeLength
@@ -168,11 +168,13 @@ def getNatType():
     msg1 = builtRequestMsg(changeIP, changePort, id)
     stunSendTest(sock1, serverName, serverPort, msg1)
     #开始接受消息
-    """
+    #"""
     response1 = sock1.recv(512)
     responseMessageOne = stunParserMsg(response1)
     #TODO do something to store the response Message's information
-    """
+    doMessageOne(responseMessageOne)
+    #"""
+    #=============================================================
     """
     send test 2
     """
@@ -188,9 +190,36 @@ def getNatType():
     #TODO do something to store the response message
     """
     
+def doMessageOne(msg):
+    #处理返回的消息1
+    mappedAddressValue = msg.attributeDict[MappedAddress]
     
-
+    family       = binascii.b2a_hex(mappedAddressValue[0:2])
+    externalPort = int(binascii.b2a_hex(mappedAddressValue[2:4]), 16)
+    externalIP   = socket.inet_ntoa(mappedAddressValue[4:8])  
+    print "test one response:"
+    print "external IP:%s, externalPort is %d"%(externalIP, externalPort)
+    
+    sourceAddressValue = msg.attributeDict[SourceAddress]
+    
+    sourcefamily = binascii.b2a_hex(sourceAddressValue[0:2])
+    sourcePort   = int(binascii.b2a_hex(sourceAddressValue[2:4]), 16)
+    sourceIP     = socket.inet_ntoa(sourceAddressValue[4:8])
+    print "sourceIP is:%s, source port is %d"%(sourceIP, sourcePort)
+    
+    changedAddressValue = msg.attributeDict[ChangedAddress]
+    
+    changedFamily = binascii.b2a_hex(changedAddressValue[0:2])
+    changedPort   = int(binascii.b2a_hex(changedAddressValue[2:4]), 16)
+    changedIP     = socket.inet_ntoa(changedAddressValue[4:8])  
+    
+    print "the second ip is:%s, port is %d"%(changedIP, changedPort)
+    
+    return (family, externalIP, externalPort)
+    
+"""
 fp = open("response_one.txt", "rb")
 content = fp.read()
 stunParserMsg(content)
 fp.close()
+"""

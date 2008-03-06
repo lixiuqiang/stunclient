@@ -1,7 +1,7 @@
 #coding=cp936
 #实现stun协议的一些内容
-import util
-import binascii, random, socket, time
+import util, constants
+import binascii, random, socket, time, logging
 
 BindRequestMsg               = '0001'
 BindResponseMsg              = '0101'
@@ -29,14 +29,23 @@ SecondaryAddress = '8050'
 
 SimpleBindRequestMsgLength   = 8
 
-serverName = "stunserver.org"
-serverPort = 3478
+serverName   = "stunserver.org"
+serverPort   = 3478
 
-secondName = None#stun服务器的第二个地址，用于再次发送test1型消息
-secondPort = None
+secondName   = None#stun服务器的第二个地址，用于再次发送test1型消息
+secondPort   = None
 
+externalIP1   = None#本机在外网的IP和port
+externalPort1 = None
 
-stunMsgHdr = {"msgType":None, "msgLength":None, "id":None}
+externalIP2   = None#本机在外网的IP和port
+externalPort2 = None
+
+localIP = util.getLocalIP()
+
+logFileName = "stun.txt"
+
+logger = util.logger(logFileName)
 
 stunAtrChangeRequest = None
 
@@ -67,6 +76,8 @@ class responseMessage:
 def builtRequestMsg(*params):
     #params = (changeIP, changePort, id)
     #构造bindrequest消息, return msg
+    global logger
+    
     (changeIP, changePort, id) = params
     changeRequestFlag = (changeIP and 4 or 0)|(changePort and 2 or 0)
     changeRequestFlag = util.int2hex(changeRequestFlag, 8)
@@ -78,10 +89,11 @@ def builtRequestMsg(*params):
     msg += binascii.a2b_hex("0004")#attribute value length
     msg += binascii.a2b_hex(changeRequestFlag)
     
-    fp = open(id+".txt", "wb")
+    fp = open("packet/"+id+".txt", "wb")
     fp.write(msg)
     fp.close()
     
+    logger.log("generate a message, its id is %s."%id, logging.INFO)
     
     return msg
 
@@ -90,13 +102,17 @@ def stunSendTest(*params):
     #return the length of the msg which has been sended
     (sock, serverName, serverPort, msg) = params
     length = sock.sendto(msg, (serverName, serverPort)) 
-    print "send %d bytes msg to server:%s, port:%d"%(length, serverName, serverPort)
+    logger.log("send %d bytes msg to server:%s, port:%d"%(length, serverName, serverPort),\
+               logging.INFO)
     
     return length
 
 def stunParserMsg(*params):
     #params = (responseMsg)
     #解析返回的消息, return a message class
+    global logger
+    logger.log("====start parser response message====", logging.INFO)
+    
     (msg,) = params
     resMsg = responseMessage()
     
@@ -105,18 +121,19 @@ def stunParserMsg(*params):
     msgType   = binascii.b2a_hex(msg[start:start+2])
     resMsg.setType(msgType)
     start += 2
-    print "msgType is %s"%msgType
+    logger.log("msgType is %s"%msgType, logging.INFO)
     
     msgLength = int(binascii.b2a_hex(msg[start:start+2]), 16)
     resMsg.setLength(msgLength)
     start += 2
-    print "msgLength is %d"%msgLength
+    logger.log("msgLength is %d"%msgLength, logging.INFO)
     
     msgTranID = binascii.b2a_hex(msg[start:start+16])
     resMsg.setTranID(msgTranID)
     start += 16
-    print "msgTranID is %s"%(msgTranID)
-    fp = open(msgTranID+"_res.txt", "wb")#
+    logger.log("msgTranID is %s"%(msgTranID), logging.INFO)
+    
+    fp = open("packet/"+msgTranID+"_res.txt", "wb")#
     fp.write(msg)#
     fp.close()#
     
@@ -124,17 +141,17 @@ def stunParserMsg(*params):
         attributeType = binascii.b2a_hex(msg[start:start+2])
         start += 2
         msgLength -= 2
-        print "attributeType is %s"%attributeType
+        #logger.log("attributeType is %s"%attributeType, logging.INFO)
         
         attributeLength = int(binascii.b2a_hex(msg[start:start+2]), 16)
         start += 2
         msgLength -= 2
-        print "attibuteLength is %d"%attributeLength
+        #logger.log("attibuteLength is %d"%attributeLength, logging.INFO)
         
         value = msg[start:start+attributeLength]
         start += attributeLength
         msgLength -= attributeLength
-        print "value is %s"%binascii.b2a_hex(value)
+        #print "value is %s"%binascii.b2a_hex(value)
         
         resMsg.setAttribute(attributeType, value)
     
@@ -142,6 +159,8 @@ def stunParserMsg(*params):
 
 def getNatType():
     #return (natType, external IP, external port)
+    global logger
+    
     #do test1, changeIP = False, changePort = False
     test1   = False#表示第几个测试的成功与否
     test1_1 = False
@@ -151,17 +170,22 @@ def getNatType():
     localPort1 = random.randint(30000, 50000)
     localPort2 = localPort1 + 1
     
+    logger.log("open socket at port:%d, %d"%(localPort1, localPort2), logging.INFO)
+    
     sock1      = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock1.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock1.settimeout(20)
     sock1.bind(("", localPort1)) 
     
     sock2      = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock2.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock2.settimeout(20)
     sock2.bind(("", localPort2))
     
     """
     send test 1
     """
+    logger.log("send bind request one, changeIP = False, changePort = False", logging.INFO)
     changeIP   = False
     changePort = False
     id         = messageID[1]
@@ -169,26 +193,114 @@ def getNatType():
     stunSendTest(sock1, serverName, serverPort, msg1)
     #开始接受消息
     #"""
-    response1 = sock1.recv(512)
-    responseMessageOne = stunParserMsg(response1)
-    #TODO do something to store the response Message's information
-    doMessageOne(responseMessageOne)
+    try:
+        logger.log("start receive message", logging.INFO)
+        response1 = sock1.recv(512)
+        logger.log("receive %dbytes message"%len(response1), logging.INFO)
+        responseMessageOne = stunParserMsg(response1)
+        global externalIP1, externalPort1
+        (externalIP1, externalPort1) = doMessageOne(responseMessageOne)
+    except socket.timeout:
+        #没有得到返回包，可能被阻塞了，设置nat 类型为阻塞
+        logger.log("cann't receive response form server!It maybe blocked!", logging.INFO)
+        return constants.Blocked
+    
+    #判断是否与本机IP相同
+    global localIP, externalIP1
+    if localIP == externalIP1:
+        test1 = True
+    else:
+        test1 = False
     #"""
     #=============================================================
     """
     send test 2
     """
+    logger.log("send bind request two, changeIP = True, changePort = False", logging.INFO)
     changeIP   = True
     changePort = False
     id         = messageID[2]
     msg2       = builtRequestMsg(changeIP, changePort, id)
     stunSendTest(sock1, serverName, serverPort, msg2)
     #接受消息
+    #"""
+    try:
+        logger.log("start receive response two", logging.INFO)
+        response2 = sock1.recv(512)
+        logger.log("receive %dbytes message"%len(response2), logging.INFO)
+        responseMessageTwo = stunParserMsg(response2)
+        
+        test2 = True
+        doMessageTwo(responseMessageTwo)
+    except BaseException, info:
+        #服务器没有响应，则返回Uncomplete
+        if test1 == True:
+            logger.log("Nat type is SymmetricUDPFirewall.\n"+info.message, logging.INFO)
+            #should return constants.SymmetricUDPFirewall
+        else:
+            logger.log("cann't receive response to message two\n"+info.message, logging.INFO)
+            test2 = False
+    #"""
     """
-    response2 = sock1.recv(512)
-    responseMessageTwo = stunParserMsg(response2)
-    #TODO do something to store the response message
+    send request 1_1
     """
+    logger.log("send bind request one_one, changeIP = False, changePort = False", logging.INFO)
+    changeIP   = False
+    changePort = False
+    id         = messageID[0]
+    msg1_1 = builtRequestMsg(changeIP, changePort, id)
+    stunSendTest(sock1, secondName, secondPort, msg1_1)
+    #开始接受消息
+    #"""
+    try:
+        logger.log("start receive response 1_1", logging.INFO)
+        response1_1 = sock1.recv(512)
+        logger.log("receive %dbytes message"%len(response1_1), logging.INFO)
+        responseMessageOne = stunParserMsg(response1_1)
+        global externalIP2, externalPort2
+        (externalIP2, externalPort2) = doMessageOne(responseMessageOne)
+        
+        
+        if (externalIP1, externalPort1) == (externalIP2, externalPort2):
+            logger.log("Nat type is FullCone", logging.INFO)
+            #return constants.FullCone
+        else:
+            test1_1 = False        
+    except socket.timeout:
+        #没有得到返回包，可能被阻塞了，设置nat 类型为阻塞
+        logger.log("cann't receive response form server!It maybe blocked!", logging.INFO)
+        return constants.Blocked
+    
+    """
+    send request three
+    """
+    logger.log("send bind request one_one, changeIP = False, changePort = False", logging.INFO)
+    changeIP   = False
+    changePort = False
+    id         = messageID[0]
+    msg1_1 = builtRequestMsg(changeIP, changePort, id)
+    stunSendTest(sock1, secondName, secondPort, msg1_1)
+    #开始接受消息
+    #"""
+    try:
+        logger.log("start receive response 1_1", logging.INFO)
+        response1_1 = sock1.recv(512)
+        logger.log("receive %dbytes message"%len(response1_1), logging.INFO)
+        responseMessageOne = stunParserMsg(response1_1)
+        global externalIP2, externalPort2
+        (externalIP2, externalPort2) = doMessageOne(responseMessageOne)
+        
+        
+        if (externalIP1, externalPort1) == (externalIP2, externalPort2):
+            logger.log("Nat type is FullCone", logging.INFO)
+            #return constants.FullCone
+        else:
+            test1_1 = False        
+    except socket.timeout:
+        #没有得到返回包，可能被阻塞了，设置nat 类型为阻塞
+        logger.log("cann't receive response form server!It maybe blocked!", logging.INFO)
+        return constants.Blocked
+    
     
 def doMessageOne(msg):
     #处理返回的消息1
@@ -197,15 +309,17 @@ def doMessageOne(msg):
     family       = binascii.b2a_hex(mappedAddressValue[0:2])
     externalPort = int(binascii.b2a_hex(mappedAddressValue[2:4]), 16)
     externalIP   = socket.inet_ntoa(mappedAddressValue[4:8])  
-    print "test one response:"
-    print "external IP:%s, externalPort is %d"%(externalIP, externalPort)
+    logger.log("bind request one's response:", logging.INFO)    
+    logger.log("mappedAddress--external IP:%s, externalPort is %d"%(externalIP, externalPort), logging.INFO)
     
     sourceAddressValue = msg.attributeDict[SourceAddress]
     
     sourcefamily = binascii.b2a_hex(sourceAddressValue[0:2])
     sourcePort   = int(binascii.b2a_hex(sourceAddressValue[2:4]), 16)
     sourceIP     = socket.inet_ntoa(sourceAddressValue[4:8])
-    print "sourceIP is:%s, source port is %d"%(sourceIP, sourcePort)
+    logger.log("message send from :%s:%d"%(sourceIP, sourcePort), logging.INFO)
+    #global externalIP1, externalPort1
+    #(externalIP1, externalPort1) = (externalIP, externalPort)
     
     changedAddressValue = msg.attributeDict[ChangedAddress]
     
@@ -213,9 +327,38 @@ def doMessageOne(msg):
     changedPort   = int(binascii.b2a_hex(changedAddressValue[2:4]), 16)
     changedIP     = socket.inet_ntoa(changedAddressValue[4:8])  
     
-    print "the second ip is:%s, port is %d"%(changedIP, changedPort)
+    logger.log("the second server address is:%s:%d"%(changedIP, changedPort), logging.INFO)
+    global secondName
+    global secondPort
+    #获得第二个ip地址和port
+    (secondName, secondPort) = (changedIP, changedPort)
     
-    return (family, externalIP, externalPort)
+    return (externalIP, externalPort)
+    
+def doMessageTwo(msg):
+    #处理返回的消息2
+    mappedAddressValue = msg.attributeDict[MappedAddress]
+    
+    family       = binascii.b2a_hex(mappedAddressValue[0:2])
+    externalPort = int(binascii.b2a_hex(mappedAddressValue[2:4]), 16)
+    externalIP   = socket.inet_ntoa(mappedAddressValue[4:8])  
+    logger.log("bind request two's response:", logging.INFO)    
+    logger.log("mappedAddress--external IP:%s, externalPort is %d"%(externalIP, externalPort), logging.INFO)
+    
+    sourceAddressValue = msg.attributeDict[SourceAddress]
+    
+    sourcefamily = binascii.b2a_hex(sourceAddressValue[0:2])
+    sourcePort   = int(binascii.b2a_hex(sourceAddressValue[2:4]), 16)
+    sourceIP     = socket.inet_ntoa(sourceAddressValue[4:8])
+    logger.log("message send from :%s:%d"%(sourceIP, sourcePort), logging.INFO)
+    
+    changedAddressValue = msg.attributeDict[ChangedAddress]
+    
+    changedFamily = binascii.b2a_hex(changedAddressValue[0:2])
+    changedPort   = int(binascii.b2a_hex(changedAddressValue[2:4]), 16)
+    changedIP     = socket.inet_ntoa(changedAddressValue[4:8])  
+    
+    logger.log("the changeedIP is %s, changedPort is %d"%(changedIP, changedPort), logging.INFO)
     
 """
 fp = open("response_one.txt", "rb")

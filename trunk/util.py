@@ -14,9 +14,21 @@ def GenTranID():
     #return binascii.a2b_hex(a)
     return a
 
+def getLocalIP():
+    import socket
+    localIP = socket.gethostbyname(socket.gethostname())
+    ipList  = socket.gethostbyname_ex(socket.gethostname())[2]
+    
+    for i in ipList:
+        if i != ipList:
+            localIP = i
+            
+    return localIP
+
 class logger:
     def __init__(self, logFile):
         self.logger = logging.getLogger()
+        self.defaultLevel = logging.CRITICAL
             
         hdlr = logging.FileHandler(logFile)
         formatter = logging.Formatter('%(asctime)s--%(levelname)s %(message)s')
@@ -27,7 +39,6 @@ class logger:
     def log(self, msg, level):
         #msg:the log message
         #level: the log level of the message
-        defaultLevel = logging.CRITICAL
         
         LogLevelDict = {logging.CRITICAL:"critical",
                         logging.DEBUG   :"debug"   ,
@@ -35,57 +46,18 @@ class logger:
                         logging.INFO    :"info"    ,
                         logging.WARN    :"warn"    }
                             
-        if not (level > defaultLevel):
+        if not (level > self.defaultLevel):
             print msg
             fun = getattr(self.logger, LogLevelDict[level])
             fun(msg)
         else:
             pass
-        
-   
-"""     
-def initLogger(logFile):
-    
-    
-    logger = logging.getLogger()
-    
-    hdlr = logging.FileHandler(logFile)
-    formatter = logging.Formatter('%(asctime)s--%(levelname)s %(message)s')
-    hdlr.setFormatter(formatter)
-    logger.addHandler(hdlr)
-    logger.setLevel(logging.NOTSET)
-    
-    return logger
-
-    
-def log(msg, level):
-    #msg:the log message
-    #level: the log level of the message
-    logger = initLogger("stun.log")
-    defaultLevel = logging.CRITICAL
-    
-    LogLevelDict = {logging.CRITICAL:"critical",
-                    logging.DEBUG   :"debug"   ,
-                    logging.ERROR   :"error"   ,
-                    logging.INFO    :"info"    ,
-                    logging.WARN    :"warn"    }
-                    
-    if not (level > defaultLevel):
-        print msg
-        fun = getattr(logger, LogLevelDict[level])
-        fun(msg)
-    else:
-        pass
-"""
 
 if __name__ == "__main__":
-    """
-    logger = initLogger("test.log")
-    logger.debug("debug ")
-    logger.info("info")
-    getattr(logger, "warn")("warn")
     """
     log = logger("stun.txt")
     log.log("debug", logging.DEBUG)
     log.log("warn", logging.WARN)
     log.log("info", logging.INFO)
+    """
+    print getLocalIP()

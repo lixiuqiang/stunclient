@@ -30,6 +30,7 @@ SecondaryAddress = '8050'
 SimpleBindRequestMsgLength   = 8
 
 serverName   = "stunserver.org"
+serverIP     = None
 serverPort   = 3478
 
 secondName   = None#stun服务器的第二个地址，用于再次发送test1型消息
@@ -40,6 +41,8 @@ externalPort1 = None
 
 externalIP2   = None#本机在外网的IP和port
 externalPort2 = None
+
+natType       = constants.Uncomplete
 
 localIP = util.getLocalIP()
 
@@ -159,7 +162,7 @@ def stunParserMsg(*params):
 
 def getNatType():
     #return (natType, external IP, external port)
-    global logger
+    global logger, natType
     
     #do test1, changeIP = False, changePort = False
     test1   = False#表示第几个测试的成功与否
@@ -203,7 +206,7 @@ def getNatType():
     except socket.timeout:
         #没有得到返回包，可能被阻塞了，设置nat 类型为阻塞
         logger.log("cann't receive response form server!It maybe blocked!", logging.INFO)
-        return constants.Blocked
+        natType = constants.Blocked#bat type is udp blocked
     
     #判断是否与本机IP相同
     global localIP, externalIP1
@@ -230,16 +233,22 @@ def getNatType():
         logger.log("receive %dbytes message"%len(response2), logging.INFO)
         responseMessageTwo = stunParserMsg(response2)
         
-        test2 = True
-        doMessageTwo(responseMessageTwo)
+        test2 = True        
+        if test1 == True:
+            natType = constants.OpenInternet
+        else:
+            natType = constants.FullCone
+            
+        doMessageTwo(responseMessageTwo)#
     except BaseException, info:
         #服务器没有响应，则返回Uncomplete
         if test1 == True:
             logger.log("Nat type is SymmetricUDPFirewall.\n"+info.message, logging.INFO)
+            natType = constants.SymmetricUDPFirewall
             #should return constants.SymmetricUDPFirewall
         else:
             logger.log("cann't receive response to message two\n"+info.message, logging.INFO)
-            test2 = False
+            test2 = False#继续执行test1_1
     #"""
     """
     send request 1_1
@@ -261,47 +270,46 @@ def getNatType():
         (externalIP2, externalPort2) = doMessageOne(responseMessageOne)
         
         
-        if (externalIP1, externalPort1) == (externalIP2, externalPort2):
-            logger.log("Nat type is FullCone", logging.INFO)
-            #return constants.FullCone
+        if (externalIP1, ) != (externalIP2, ):
+            logger.log("Nat type is SymmetricNAT", logging.INFO)
+            natType = constants.SymmetricNAT
         else:
-            test1_1 = False        
+            test1_1 = True        
     except socket.timeout:
         #没有得到返回包，可能被阻塞了，设置nat 类型为阻塞
-        logger.log("cann't receive response form server!It maybe blocked!", logging.INFO)
-        return constants.Blocked
+        logger.log("cann't receive response 1_1 form server!It maybe blocked!", logging.INFO)
+        return constants.Uncomplete
     
     """
     send request three
     """
-    logger.log("send bind request one_one, changeIP = False, changePort = False", logging.INFO)
+    logger.log("send bind request one_one, changeIP = False, changePort = True", logging.INFO)
     changeIP   = False
-    changePort = False
+    changePort = True
     id         = messageID[0]
-    msg1_1 = builtRequestMsg(changeIP, changePort, id)
-    stunSendTest(sock1, secondName, secondPort, msg1_1)
+    msg3 = builtRequestMsg(changeIP, changePort, id)
+    stunSendTest(sock1, secondName, secondPort, msg3)
     #开始接受消息
     #"""
     try:
-        logger.log("start receive response 1_1", logging.INFO)
-        response1_1 = sock1.recv(512)
-        logger.log("receive %dbytes message"%len(response1_1), logging.INFO)
-        responseMessageOne = stunParserMsg(response1_1)
-        global externalIP2, externalPort2
-        (externalIP2, externalPort2) = doMessageOne(responseMessageOne)
+        logger.log("start receive response 3", logging.INFO)
+        response3 = sock1.recv(512)
+        logger.log("receive %dbytes message"%len(response3), logging.INFO)
+        responseMessageThree = stunParserMsg(response3)
+        #if receive message, nat type is the RestricNAT 
+        if (not test1) and (not test2) and (test1_1):
+            logger.log("nat type is RestricNAT", logging.INFO)
+            natType = constants.RestricNAT
         
-        
-        if (externalIP1, externalPort1) == (externalIP2, externalPort2):
-            logger.log("Nat type is FullCone", logging.INFO)
-            #return constants.FullCone
-        else:
-            test1_1 = False        
     except socket.timeout:
         #没有得到返回包，可能被阻塞了，设置nat 类型为阻塞
-        logger.log("cann't receive response form server!It maybe blocked!", logging.INFO)
-        return constants.Blocked
-    
-    
+        #logger.log("cann't receive response 3 form server!It maybe blocked!", logging.INFO)
+        if (not test1) and (not test2) and (test1_1):
+            logger.log("nat type is RestricPortNAT", logging.INFO)
+            natType = constants.RestricPortNAT            
+
+    return natType
+
 def doMessageOne(msg):
     #处理返回的消息1
     mappedAddressValue = msg.attributeDict[MappedAddress]
@@ -318,9 +326,10 @@ def doMessageOne(msg):
     sourcePort   = int(binascii.b2a_hex(sourceAddressValue[2:4]), 16)
     sourceIP     = socket.inet_ntoa(sourceAddressValue[4:8])
     logger.log("message send from :%s:%d"%(sourceIP, sourcePort), logging.INFO)
-    #global externalIP1, externalPort1
-    #(externalIP1, externalPort1) = (externalIP, externalPort)
     
+    global serverIP
+    serverIP = sourceIP
+        
     changedAddressValue = msg.attributeDict[ChangedAddress]
     
     changedFamily = binascii.b2a_hex(changedAddressValue[0:2])

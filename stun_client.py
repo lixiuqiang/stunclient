@@ -69,4 +69,5 @@ SymmetricNAT         = "Symmetric NAT"
 import stun
 
 if __name__ == "__main__":
-    stun.getNatType()
+    type = stun.getNatType()
+    print "nat type is %s"%type

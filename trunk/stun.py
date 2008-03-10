@@ -203,17 +203,16 @@ def getNatType():
         responseMessageOne = stunParserMsg(response1)
         global externalIP1, externalPort1
         (externalIP1, externalPort1) = doMessageOne(responseMessageOne)
+        #判断是否与本机IP相同
+        if localIP == externalIP1:
+            test1 = True
+        else:
+            test1 = False
     except socket.timeout:
         #没有得到返回包，可能被阻塞了，设置nat 类型为阻塞
         logger.log("cann't receive response form server!It maybe blocked!", logging.INFO)
         natType = constants.Blocked#bat type is udp blocked
     
-    #判断是否与本机IP相同
-    global localIP, externalIP1
-    if localIP == externalIP1:
-        test1 = True
-    else:
-        test1 = False
     #"""
     #=============================================================
     """

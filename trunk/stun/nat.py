@@ -162,5 +162,4 @@ if __name__ == "__main__":
     d1 = getLocalIPAddress().addCallback(cb_gotip)
     d1.addCallback(lambda x:reactor.stop())
     reactor.run()
-    
-    raw_input()
+   

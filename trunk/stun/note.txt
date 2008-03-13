@@ -1,0 +1,2 @@
+用于发现NAT类型
+This code comes from Shtoom: http://divmod.org/projects/shtoom

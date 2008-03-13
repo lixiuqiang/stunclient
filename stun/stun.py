@@ -18,7 +18,7 @@ import sets
 # from shtoom.interfaces import NATMapper as INATMapper
 
 from defcache import DeferredCache
-raw_input()
+
 # from shtoom.nat import BaseMapper
 
 STUNVERBOSE = True
@@ -658,9 +658,6 @@ if __name__ == "__main__":
     #reactor.callLater(20, stunClient.stunTimedOut)
     reactor.callLater(0, stunClient.startDiscovery)
     reactor.run()
-    
-    raw_input()
-
 
 
 """
